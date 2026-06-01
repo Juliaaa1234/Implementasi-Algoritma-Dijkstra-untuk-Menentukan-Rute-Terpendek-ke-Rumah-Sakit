@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Rute RS Terdekat - Magelang</title>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #f5f5f5; 
+        }
+        #map { 
+            height: 600px; 
+            width: 100%; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+        }
+        .sidebar { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+            height: 600px; 
+            overflow-y: auto; 
+        }
+        .result-card { 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            color: white; 
+            padding: 20px; 
+            border-radius: 10px; 
+            margin-top: 15px; 
+        }
+        .loading { 
+            display: none; 
+            text-align: center; 
+            padding: 20px; 
+        }
+        .spinner { 
+            border: 4px solid #f3f3f3; 
+            border-top: 4px solid #3498db; 
+            border-radius: 50%; 
+            width: 40px; 
+            height: 40px; 
+            animation: spin 1s linear infinite; 
+            margin: 0 auto; 
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+        .legend { 
+            background: white; 
+            padding: 10px; 
+            border-radius: 5px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+            position: absolute; 
+            bottom: 20px; 
+            right: 20px; 
+            z-index: 1000; 
+        }
+        .legend-item { 
+            display: flex; 
+            align-items: center; 
+            margin: 5px 0; 
+        }
+        .legend-color { 
+            width: 20px; 
+            height: 20px; 
+            margin-right: 10px; 
+            border-radius: 3px; 
+        }
+        .error-box {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            border: 1px solid #f5c6cb;
+        }
+        .success-box {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+            border: 1px solid #c3e6cb;
+        }
+        .comparison-item {
+            background: white;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .comparison-item:hover {
+            background: #f8f9fa;
+            border-color: #3498db;
+            transform: translateX(5px);
+        }
+        .comparison-item.nearest {
+            border-left: 4px solid #2ecc71;
+            background: #f0fff4;
+        }
+        .comparison-item .rank {
+            font-size: 20px;
+            font-weight: bold;
+            color: #3498db;
+            margin-right: 10px;
+        }
+        .comparison-item.nearest .rank {
+            color: #2ecc71;
+        }
+        .distance-badge {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .graph-edge {
+            stroke: #7f8c8d;
+            stroke-width: 2;
+            stroke-opacity: 0.7;
+        }
+        .graph-edge-highlight {
+            stroke: #e74c3c;
+            stroke-width: 4;
+            stroke-opacity: 1;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { stroke-opacity: 1; }
+            50% { stroke-opacity: 0.5; }
+            100% { stroke-opacity: 1; }
+        }
+        .node-label {
+            background: rgba(255,255,255,0.9);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            border: 1px solid #bdc3c7;
+        }
+        .btn-group-custom {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        .btn-group-custom .btn {
+            flex: 1;
+            min-width: 140px;
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">🏥 Sistem Rute RS Terdekat - Magelang</a>
+            <span class="navbar-text text-white">Algoritma Dijkstra + OpenStreetMap Real-time</span>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-4 mb-4">
+        <div class="row">
+            <!-- Sidebar Kiri -->
+            <div class="col-md-4">
+                <div class="sidebar">
+                    <h4>🔍 Pencarian Rute</h4>
+                    <hr>
+
+                    <!-- Pilih Titik Awal -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">📍 Titik Awal:</label>
+                        <select id="startPoint" class="form-select">
+                            <option value="">-- Pilih Titik Awal --</option>
+                        </select>
+                    </div>
+
+                    <!-- Pilih RS Tujuan (HANYA untuk menu jalur ke RS tertentu) -->
+                    <div class="mb-3" id="endPointContainer">
+                        <label class="form-label fw-bold">🏥 RS Tujuan:</label>
+                        <select id="endPoint" class="form-select">
+                            <option value="">-- Pilih RS Tujuan --</option>
+                        </select>
+                    </div>
+
+                    <!-- Tombol Aksi -->
+                    <div class="d-grid gap-2">
+                        <button onclick="findNearestHospital()" class="btn btn-success">
+                            🎯 Cari RS Terdekat
+                        </button>
+                        <button onclick="findCustomPath()" class="btn btn-primary">
+                            🛣️ Cari Jalur ke RS Tertentu
+                        </button>
+                        <button onclick="compareAllDistances()" class="btn btn-warning" style="color: white;">
+                            📊 Perbandingan Jarak ke Semua RS
+                        </button>
+                        <button onclick="showAllEdges()" class="btn btn-secondary">
+                            🌐 Tampilkan Semua Jalan (Graph)
+                        </button>
+                        <button onclick="checkRealtimeDistance()" class="btn btn-info">
+                            📡 Cek Jarak Real-time OSRM
+                        </button>
+                        <button onclick="clearMap()" class="btn btn-outline-danger">
+                            🗑️ Bersihkan Peta
+                        </button>
+                    </div>
+
+                    <!-- Loading -->
+                    <div id="loading" class="loading">
+                        <div class="spinner"></div>
+                        <p class="mt-2">Menghitung rute...</p>
+                    </div>
+
+                    <!-- Hasil Pencarian -->
+                    <div id="result"></div>
+
+                    <!-- Info -->
+                    <div class="mt-4 p-3 bg-light rounded">
+                        <small class="text-muted">
+                            <strong>💡 Info:</strong><br>
+                            • <b>Cari RS Terdekat:</b> Pilih titik awal → klik tombol (tidak perlu pilih RS)<br>
+                            • <b>Jalur ke RS Tertentu:</b> Pilih titik awal + RS tujuan<br>
+                            • <b>Perbandingan:</b> Lihat jarak ke semua RS sekaligus<br>
+                            • Algoritma: Dijkstra (shortest path)
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Peta Kanan -->
+            <div class="col-md-8">
+                <div id="map"></div>
+
+                <div class="legend">
+                    <h6><strong>🗺️ Legenda</strong></h6>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #2ecc71; border-radius: 50%;"></div>
+                        <span>Titik Awal</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #e74c3c;"></div>
+                        <span>Rumah Sakit</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #3498db;"></div>
+                        <span>Jalur Terpendek</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-color" style="background: #95a5a6;"></div>
+                        <span>Jalan Lain</span>
+                    </div>
+                    <div class="legend-item">
+                        <div style="font-size: 20px; margin-right: 5px;">⭐</div>
+                        <span>Start Point</span>
+                    </div>
+                    <div class="legend-item">
+                        <div style="font-size: 20px; margin-right: 5px;">🏁</div>
+                        <span>Tujuan RS</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // ============================================
+        // INISIALISASI PETA
+        // ============================================
+        const map = L.map('map').setView([-7.48, 110.22], 14);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        const markersLayer = L.layerGroup().addTo(map);
+        const edgesLayer = L.layerGroup().addTo(map);
+        const pathLayer = L.layerGroup().addTo(map);
+        const comparisonLayer = L.layerGroup().addTo(map);
+
+        let nodesData = [];
+        let edgesData = [];
+        let allPolylines = []; // Untuk menyimpan semua garis graph
+
+        // ============================================
+        // LOAD DATA
+        // ============================================
+        async function loadData() {
+            try {
+                console.log("⏳ Memuat data...");
+
+                const nodesResponse = await fetch('/api/nodes');
+                if (!nodesResponse.ok) throw new Error(`HTTP ${nodesResponse.status}`);
+                nodesData = await nodesResponse.json();
+
+                const edgesResponse = await fetch('/api/edges');
+                if (!edgesResponse.ok) throw new Error(`HTTP ${edgesResponse.status}`);
+                edgesData = await edgesResponse.json();
+
+                console.log(`✅ Data loaded: ${nodesData.length} nodes, ${edgesData.length} edges`);
+
+                populateDropdowns();
+                showNodesOnMap();
+
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showError('Gagal memuat data. Pastikan server Flask berjalan di http://localhost:5000');
+            }
+        }
+
+        function populateDropdowns() {
+            const startSelect = document.getElementById('startPoint');
+            const endSelect = document.getElementById('endPoint');
+
+            startSelect.innerHTML = '<option value="">-- Pilih Titik Awal --</option>';
+            endSelect.innerHTML = '<option value="">-- Pilih RS Tujuan --</option>';
+
+            nodesData.forEach(node => {
+                const option = document.createElement('option');
+                option.value = node.id;
+                option.text = `${node.id} - ${node.name}`;
+
+                if (node.type === 'start') {
+                    startSelect.appendChild(option.cloneNode(true));
+                } else if (node.type === 'hospital') {
+                    endSelect.appendChild(option.cloneNode(true));
+                }
+            });
+        }
+
+        // ============================================
+        // TAMPILKAN NODE DI PETA
+        // ============================================
+        function showNodesOnMap() {
+            markersLayer.clearLayers();
+
+            nodesData.forEach(node => {
+                const isStart = node.type === 'start';
+                const color = isStart ? '#2ecc71' : '#e74c3c';
+                const borderColor = isStart ? '#27ae60' : '#c0392b';
+
+                const marker = L.circleMarker([node.latitude, node.longitude], {
+                    radius: isStart ? 14 : 12,
+                    fillColor: color,
+                    color: borderColor,
+                    weight: 3,
+                    opacity: 1,
+                    fillOpacity: 0.9
+                }).addTo(markersLayer);
+
+                const popupContent = `
+                    <div style="min-width: 220px;">
+                        <h5 style="margin: 0 0 12px 0; color: ${color}; font-weight: bold;">
+                            ${isStart ? '📍' : '🏥'} ${node.name}
+                        </h5>
+                        <hr style="margin: 8px 0;">
+                        <p style="margin: 6px 0;"><strong>ID:</strong> ${node.id}</p>
+                        <p style="margin: 6px 0;"><strong>Tipe:</strong> ${node.type === 'start' ? 'Titik Awal' : 'Rumah Sakit'}</p>
+                        <p style="margin: 6px 0;"><strong>Koordinat:</strong> ${node.latitude.toFixed(4)}, ${node.longitude.toFixed(4)}</p>
+                        ${isStart ? `
+                        <hr style="margin: 8px 0;">
+                        <button onclick="findNearestHospital('${node.id}')" 
+                            style="background: ${color}; color: white; border: none; padding: 8px 15px; 
+                            border-radius: 5px; cursor: pointer; width: 100%; font-weight: bold;">
+                            🎯 Cari RS Terdekat
+                        </button>
+                        ` : ''}
+                    </div>
+                `;
+
+                marker.bindPopup(popupContent);
+
+                marker.bindTooltip(`${node.id}`, {
+                    permanent: true,
+                    direction: 'top',
+                    offset: [0, -15],
+                    className: 'bg-dark text-white px-2 py-1 rounded border-0',
+                    opacity: 0.9
+                });
+            });
+        }
+
+        // ============================================
+        // TAMPILKAN SEMUA JALAN SEBAGAI GRAPH TERHUBUNG
+        // ============================================
+        function showAllEdges() {
+            edgesLayer.clearLayers();
+            allPolylines = [];
+
+            let drawnCount = 0;
+
+            edgesData.forEach(edge => {
+                const from = nodesData.find(n => n.id === edge.from_id);
+                const to = nodesData.find(n => n.id === edge.to_id);
+
+                if (from && to) {
+                    // Warna berbeda untuk jenis koneksi
+                    let edgeColor = '#95a5a6';
+                    let edgeWeight = 2;
+                    let edgeOpacity = 0.6;
+
+                    // Koneksi antar titik awal → warna hijau
+                    if (from.type === 'start' && to.type === 'start') {
+                        edgeColor = '#2ecc71';
+                        edgeWeight = 3;
+                        edgeOpacity = 0.7;
+                    }
+                    // Koneksi titik awal ke RS → warna oranye
+                    else if ((from.type === 'start' && to.type === 'hospital') || 
+                             (from.type === 'hospital' && to.type === 'start')) {
+                        edgeColor = '#f39c12';
+                        edgeWeight = 2.5;
+                        edgeOpacity = 0.7;
+                    }
+                    // Koneksi antar RS → warna merah
+                    else if (from.type === 'hospital' && to.type === 'hospital') {
+                        edgeColor = '#e74c3c';
+                        edgeWeight = 3;
+                        edgeOpacity = 0.8;
+                    }
+
+                    const polyline = L.polyline([
+                        [from.latitude, from.longitude],
+                        [to.latitude, to.longitude]
+                    ], {
+                        color: edgeColor,
+                        weight: edgeWeight,
+                        opacity: edgeOpacity,
+                        lineCap: 'round',
+                        lineJoin: 'round'
+                    }).addTo(edgesLayer);
+
+                    // Simpan referensi untuk interaksi
+                    allPolylines.push({
+                        polyline: polyline,
+                        from: from,
+                        to: to,
+                        weight: edge.weight,
+                        edgeData: edge
+                    });
+
+                    // Label jarak di tengah
+                    const midLat = (from.latitude + to.latitude) / 2;
+                    const midLng = (from.longitude + to.longitude) / 2;
+
+                    const labelIcon = L.divIcon({
+                        className: 'distance-label',
+                        html: `<div style="background: rgba(255,255,255,0.95); color: #2c3e50; 
+                                padding: 3px 8px; border-radius: 10px; font-size: 10px; 
+                                font-weight: bold; border: 1px solid ${edgeColor}; 
+                                white-space: nowrap; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
+                                ${edge.weight} km
+                               </div>`,
+                        iconSize: [60, 20],
+                        iconAnchor: [30, 10]
+                    });
+
+                    L.marker([midLat, midLng], { icon: labelIcon }).addTo(edgesLayer);
+
+                    // Event hover pada garis
+                    polyline.on('mouseover', function(e) {
+                        this.setStyle({ weight: edgeWeight + 3, opacity: 1 });
+                    });
+                    polyline.on('mouseout', function(e) {
+                        this.setStyle({ weight: edgeWeight, opacity: edgeOpacity });
+                    });
+
+                    drawnCount++;
+                }
+            });
+
+            console.log(`✅ ${drawnCount} jalan ditampilkan sebagai graph terhubung`);
+
+            // Tampilkan info graph
+            showGraphInfo();
+
+            if (drawnCount > 0) {
+                const group = new L.featureGroup(edgesLayer.getLayers());
+                map.fitBounds(group.getBounds().pad(0.1));
+            }
+        }
+
+        function showGraphInfo() {
+            const startNodes = nodesData.filter(n => n.type === 'start').length;
+            const hospitalNodes = nodesData.filter(n => n.type === 'hospital').length;
+
+            const html = `
+                <div class="success-box">
+                    <h6>🌐 Graph Network</h6>
+                    <p class="mb-1"><strong>${nodesData.length}</strong> node total</p>
+                    <p class="mb-1">• <span style="color:#2ecc71">●</span> ${startNodes} Titik Awal</p>
+                    <p class="mb-1">• <span style="color:#e74c3c">■</span> ${hospitalNodes} Rumah Sakit</p>
+                    <p class="mb-0">• <strong>${edgesData.length}</strong> koneksi/jalan</p>
+                    <hr style="border-color: rgba(0,0,0,0.1);">
+                    <small>
+                        <span style="color:#2ecc71">—</span> Antar Titik Awal<br>
+                        <span style="color:#f39c12">—</span> Titik Awal ↔ RS<br>
+                        <span style="color:#e74c3c">—</span> Antar RS
+                    </small>
+                </div>
+            `;
+            document.getElementById('result').innerHTML = html;
+        }
+
+        // ============================================
+        // CARI RS TERDEKAT (TANPA PERLU PILIH RS TUJUAN)
+        // ============================================
+        async function findNearestHospital(startId = null) {
+            const start = startId || document.getElementById('startPoint').value;
+
+            if (!start) {
+                alert('⚠️ Pilih titik awal terlebih dahulu!');
+                return;
+            }
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').innerHTML = '';
+
+            try {
+                console.log(`🔍 Mencari RS terdekat dari ${start}...`);
+
+                const response = await fetch(`/api/nearest-hospital?start=${start}`);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server error ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                // Clear layers
+                pathLayer.clearLayers();
+                comparisonLayer.clearLayers();
+
+                // Draw path
+                const pathCoords = data.path_details.map(n => [n.latitude, n.longitude]);
+
+                L.polyline(pathCoords, {
+                    color: '#3498db',
+                    weight: 7,
+                    opacity: 0.9,
+                    lineJoin: 'round',
+                    lineCap: 'round'
+                }).addTo(pathLayer);
+
+                // Highlight start
+                const startNode = data.path_details[0];
+                L.marker([startNode.latitude, startNode.longitude], {
+                    icon: L.divIcon({
+                        html: '<div style="font-size: 35px; filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.3));">⭐</div>',
+                        iconSize: [35, 35],
+                        iconAnchor: [17, 17]
+                    })
+                }).addTo(pathLayer).bindPopup(`<b style="color:orange">⭐ START</b><br>${startNode.name}`);
+
+                // Highlight end
+                const endNode = data.path_details[data.path_details.length - 1];
+                L.marker([endNode.latitude, endNode.longitude], {
+                    icon: L.divIcon({
+                        html: '<div style="font-size: 35px; filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.3));">🏁</div>',
+                        iconSize: [35, 35],
+                        iconAnchor: [17, 17]
+                    })
+                }).addTo(pathLayer).bindPopup(`<b style="color:purple">🏁 TUJUAN</b><br>${endNode.name}`);
+
+                // Zoom ke jalur
+                const group = new L.featureGroup(pathLayer.getLayers());
+                map.fitBounds(group.getBounds().pad(0.2));
+
+                // Tampilkan hasil
+                showNearestResult(data);
+
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showError('Gagal menghitung rute: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function showNearestResult(data) {
+            const resultDiv = document.getElementById('result');
+
+            let html = `
+                <div class="result-card">
+                    <h5>🎯 RS TERDEKAT DITEMUKAN!</h5>
+                    <hr style="border-color: rgba(255,255,255,0.3);">
+                    <p><strong>📍 Dari:</strong> ${data.path_details[0].name}</p>
+                    <p><strong>🏥 RS Terdekat:</strong> ${data.hospital_name}</p>
+                    <p><strong>📏 Total Jarak:</strong> ${data.distance} km</p>
+                    <p><strong>🛣️ Jumlah Node:</strong> ${data.path.length} lokasi</p>
+                </div>
+
+                <div class="mt-3">
+                    <h6 class="fw-bold">Detail Rute:</h6>
+                    <div class="list-group">
+            `;
+
+            data.path_details.forEach((node, i) => {
+                const icon = i === 0 ? '📍' : i === data.path_details.length - 1 ? '🏥' : '→';
+                const bg = i === 0 ? 'bg-success text-white' : i === data.path_details.length - 1 ? 'bg-danger text-white' : '';
+
+                html += `
+                    <div class="list-group-item ${bg} p-2 d-flex justify-content-between align-items-center">
+                        <span class="fw-bold">${icon} ${i+1}. ${node.name}</span>
+                        <span class="badge bg-primary rounded-pill">${node.id}</span>
+                    </div>
+                `;
+
+                if (i < data.path_details.length - 1) {
+                    html += `<div class="text-center py-1"><span style="color: #3498db; font-size: 20px;">↓</span></div>`;
+                }
+            });
+
+            html += `</div></div>`;
+            resultDiv.innerHTML = html;
+        }
+
+        // ============================================
+        // CARI JALUR KE RS TERTENTU
+        // ============================================
+        async function findCustomPath() {
+            const start = document.getElementById('startPoint').value;
+            const end = document.getElementById('endPoint').value;
+
+            if (!start || !end) {
+                alert('⚠️ Pilih titik awal DAN RS tujuan!');
+                return;
+            }
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').innerHTML = '';
+
+            try {
+                const response = await fetch(`/api/shortest-path?start=${start}&end=${end}`);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server error ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                pathLayer.clearLayers();
+                comparisonLayer.clearLayers();
+
+                const pathCoords = data.path_details.map(n => [n.latitude, n.longitude]);
+
+                L.polyline(pathCoords, {
+                    color: '#9b59b6',
+                    weight: 7,
+                    opacity: 0.9,
+                    lineJoin: 'round'
+                }).addTo(pathLayer);
+
+                const startNode = data.path_details[0];
+                const endNode = data.path_details[data.path_details.length - 1];
+
+                L.marker([startNode.latitude, startNode.longitude], {
+                    icon: L.divIcon({ html: '<div style="font-size: 35px;">⭐</div>', iconSize: [35,35], iconAnchor: [17,17] })
+                }).addTo(pathLayer).bindPopup(`<b>START:</b> ${startNode.name}`);
+
+                L.marker([endNode.latitude, endNode.longitude], {
+                    icon: L.divIcon({ html: '<div style="font-size: 35px;">🏁</div>', iconSize: [35,35], iconAnchor: [17,17] })
+                }).addTo(pathLayer).bindPopup(`<b>TUJUAN:</b> ${endNode.name}`);
+
+                const group = new L.featureGroup(pathLayer.getLayers());
+                map.fitBounds(group.getBounds().pad(0.2));
+
+                showCustomResult(data);
+
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showError('Gagal menghitung rute: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function showCustomResult(data) {
+            const resultDiv = document.getElementById('result');
+
+            let html = `
+                <div class="result-card" style="background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);">
+                    <h5>🛣️ JALUR DITEMUKAN!</h5>
+                    <hr style="border-color: rgba(255,255,255,0.3);">
+                    <p><strong>📍 Dari:</strong> ${data.path_details[0].name}</p>
+                    <p><strong>🏥 Ke:</strong> ${data.path_details[data.path_details.length-1].name}</p>
+                    <p><strong>📏 Total Jarak:</strong> ${data.distance} km</p>
+                    <p><strong>🛣️ Jumlah Node:</strong> ${data.path.length} lokasi</p>
+                </div>
+
+                <div class="mt-3">
+                    <h6 class="fw-bold">Detail Rute:</h6>
+                    <div class="list-group">
+            `;
+
+            data.path_details.forEach((node, i) => {
+                const icon = i === 0 ? '📍' : i === data.path_details.length - 1 ? '🏥' : '→';
+                const bg = i === 0 ? 'bg-success text-white' : i === data.path_details.length - 1 ? 'bg-danger text-white' : '';
+
+                html += `
+                    <div class="list-group-item ${bg} p-2 d-flex justify-content-between align-items-center">
+                        <span class="fw-bold">${icon} ${i+1}. ${node.name}</span>
+                        <span class="badge bg-primary rounded-pill">${node.id}</span>
+                    </div>
+                `;
+
+                if (i < data.path_details.length - 1) {
+                    html += `<div class="text-center py-1"><span style="color: #9b59b6; font-size: 20px;">↓</span></div>`;
+                }
+            });
+
+            html += `</div></div>`;
+            resultDiv.innerHTML = html;
+        }
+
+        // ============================================
+        // PERBANDINGAN JARAK KE SEMUA RS (FITUR BARU)
+        // ============================================
+        async function compareAllDistances() {
+            const start = document.getElementById('startPoint').value;
+
+            if (!start) {
+                alert('⚠️ Pilih titik awal terlebih dahulu!');
+                return;
+            }
+
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').innerHTML = '';
+
+            try {
+                console.log(`📊 Membandingkan jarak dari ${start} ke semua RS...`);
+
+                const response = await fetch(`/api/compare-distances?start=${start}`);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Server error ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                // Clear layers
+                pathLayer.clearLayers();
+                comparisonLayer.clearLayers();
+
+                // Tampilkan hasil perbandingan
+                showComparisonResult(data);
+
+                // Tampilkan semua jalur di peta dengan warna berbeda
+                showComparisonOnMap(data);
+
+            } catch (error) {
+                console.error('❌ Error:', error);
+                showError('Gagal membandingkan jarak: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        function showComparisonResult(data) {
+            const resultDiv = document.getElementById('result');
+
+            let html = `
+                <div class="result-card" style="background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);">
+                    <h5>📊 PERBANDINGAN JARAK</h5>
+                    <hr style="border-color: rgba(255,255,255,0.3);">
+                    <p><strong>📍 Dari:</strong> ${data.start_name} (${data.start_id})</p>
+                    <p><strong>🏥 Total RS:</strong> ${data.total_rs} rumah sakit</p>
+                </div>
+
+                <div class="mt-3">
+                    <h6 class="fw-bold">Urutan Jarak Terdekat:</h6>
+            `;
+
+            data.results.forEach((result, i) => {
+                const isNearest = i === 0;
+                const medal = isNearest ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `${i+1}.`;
+
+                html += `
+                    <div class="comparison-item ${isNearest ? 'nearest' : ''}" 
+                         onclick="highlightComparisonPath('${result.rs_id}', '${data.start_id}')"
+                         style="cursor: pointer;">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="d-flex align-items-center">
+                                <span class="rank">${medal}</span>
+                                <div>
+                                    <div class="fw-bold">${result.rs_name}</div>
+                                    <small class="text-muted">${result.rs_id} • ${result.path.length} node</small>
+                                </div>
+                            </div>
+                            <span class="distance-badge">${result.distance} km</span>
+                        </div>
+                        ${isNearest ? '<div class="mt-1"><span class="badge bg-success">⭐ TERDEKAT</span></div>' : ''}
+                    </div>
+                `;
+            });
+
+            html += `
+                </div>
+                <div class="mt-2 text-muted small">
+                    <em>💡 Klik item di atas untuk melihat jalur di peta</em>
+                </div>
+            `;
+
+            resultDiv.innerHTML = html;
+        }
+
+        function showComparisonOnMap(data) {
+            // Tampilkan titik awal dengan bintang besar
+            const startNode = nodesData.find(n => n.id === data.start_id);
+
+            L.marker([startNode.latitude, startNode.longitude], {
+                icon: L.divIcon({
+                    html: '<div style="font-size: 40px; filter: drop-shadow(2px 2px 4px rgba(0,0,0,0.4));">⭐</div>',
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 20]
+                })
+            }).addTo(comparisonLayer).bindPopup(`<b style="color:orange">📍 TITIK AWAL</b><br>${startNode.name}`);
+
+            // Warna gradient untuk jalur (merah = jauh, hijau = dekat)
+            const colors = ['#2ecc71', '#27ae60', '#f1c40f', '#e67e22', '#e74c3c', '#c0392b', '#8e44ad', '#9b59b6'];
+
+            data.results.forEach((result, i) => {
+                const color = colors[Math.min(i, colors.length - 1)];
+                const pathCoords = result.path_details.map(n => [n.latitude, n.longitude]);
+
+                // Gambar jalur tipis untuk perbandingan
+                L.polyline(pathCoords, {
+                    color: color,
+                    weight: i === 0 ? 5 : 2,
+                    opacity: i === 0 ? 0.9 : 0.4,
+                    dashArray: i === 0 ? null : '5, 5'
+                }).addTo(comparisonLayer);
+
+                // Marker untuk RS
+                const rsNode = result.path_details[result.path_details.length - 1];
+                L.circleMarker([rsNode.latitude, rsNode.longitude], {
+                    radius: i === 0 ? 14 : 8,
+                    fillColor: color,
+                    color: '#fff',
+                    weight: 2,
+                    fillOpacity: 0.9
+                }).addTo(comparisonLayer).bindPopup(
+                    `<b>${result.rs_name}</b><br>Jarak: ${result.distance} km<br>Peringkat: #${i+1}`
+                );
+            });
+
+            // Zoom ke area
+            const group = new L.featureGroup(comparisonLayer.getLayers());
+            map.fitBounds(group.getBounds().pad(0.15));
+        }
+
+        function highlightComparisonPath(rsId, startId) {
+            // Hapus highlight sebelumnya
+            pathLayer.clearLayers();
+
+            // Cari data jalur
+            fetch(`/api/shortest-path?start=${startId}&end=${rsId}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) return;
+
+                    const pathCoords = data.path_details.map(n => [n.latitude, n.longitude]);
+
+                    L.polyline(pathCoords, {
+                        color: '#e74c3c',
+                        weight: 6,
+                        opacity: 1
+                    }).addTo(pathLayer);
+
+                    // Flash effect
+                    const group = new L.featureGroup(pathLayer.getLayers());
+                    map.fitBounds(group.getBounds().pad(0.2));
+                });
+        }
+
+        // ============================================
+        // CEK JARAK REAL-TIME OSRM
+        // ============================================
+        async function checkRealtimeDistance() {
+            const start = document.getElementById('startPoint').value;
+            const end = document.getElementById('endPoint').value;
+
+            if (!start) {
+                alert('⚠️ Pilih titik awal!');
+                return;
+            }
+
+            let endNode;
+            if (!end) {
+                // Cari RS terdekat
+                const startNode = nodesData.find(n => n.id === start);
+                const hospitals = nodesData.filter(n => n.type === 'hospital');
+
+                let minDist = Infinity;
+                hospitals.forEach(h => {
+                    const dist = Math.sqrt(
+                        Math.pow(startNode.latitude - h.latitude, 2) + 
+                        Math.pow(startNode.longitude - h.longitude, 2)
+                    );
+                    if (dist < minDist) {
+                        minDist = dist;
+                        endNode = h;
+                    }
+                });
+            } else {
+                endNode = nodesData.find(n => n.id === end);
+            }
+
+            const startNode = nodesData.find(n => n.id === start);
+
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                const response = await fetch(
+                    `/api/osrm-distance?lat1=${startNode.latitude}&lon1=${startNode.longitude}&lat2=${endNode.latitude}&lon2=${endNode.longitude}`
+                );
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    const html = `
+                        <div class="result-card" style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);">
+                            <h5>🌐 JARAK REAL-TIME (OSRM)</h5>
+                            <hr style="border-color: rgba(255,255,255,0.3);">
+                            <p><strong>Dari:</strong> ${startNode.name}</p>
+                            <p><strong>Ke:</strong> ${endNode.name}</p>
+                            <p><strong>📏 Jarak Jalan:</strong> ${data.distance_km} km</p>
+                            <p><strong>⏱️ Estimasi Waktu:</strong> ${data.duration_min} menit</p>
+                            <hr style="border-color: rgba(255,255,255,0.3);">
+                            <small>Data dari OpenStreetMap (real-time)</small>
+                        </div>
+                    `;
+                    document.getElementById('result').innerHTML = html;
+                } else {
+                    showError('Gagal mengambil data OSRM. Cek koneksi internet.');
+                }
+            } catch (error) {
+                showError('Error mengambil data real-time: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+
+        // ============================================
+        // BERSIHKAN PETA
+        // ============================================
+        function clearMap() {
+            pathLayer.clearLayers();
+            edgesLayer.clearLayers();
+            comparisonLayer.clearLayers();
+            allPolylines = [];
+            document.getElementById('result').innerHTML = '';
+            document.getElementById('startPoint').value = '';
+            document.getElementById('endPoint').value = '';
+            map.setView([-7.48, 110.22], 14);
+        }
+
+        // ============================================
+        // HELPER FUNCTIONS
+        // ============================================
+        function showError(message) {
+            document.getElementById('result').innerHTML = `
+                <div class="error-box">
+                    <strong>❌ Error</strong><br>${message}
+                </div>
+            `;
+        }
+
+        // ============================================
+        // INIT
+        // ============================================
+        document.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>
